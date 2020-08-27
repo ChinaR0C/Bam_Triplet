@@ -1,5 +1,3 @@
-from PIL import Image
-%matplotlib inline
 import matplotlib
 import matplotlib.pyplot as plt
 import torch
@@ -109,6 +107,7 @@ class TripletDataset(Dataset):
 #ImageFoler를 통해 불러온 trainset을 DataLoader를 사용해
 #Batch 형식으로 네트워크에 올리기
 cuda = torch.cuda.is_available()
+# cuda = False
 device = torch.device("cuda:0" if cuda else "cpu")
 
 train_dataset = torchvision.datasets.ImageFolder(root = './BAM', transform = trans)
@@ -130,7 +129,7 @@ class StyleNet(nn.Module):
         super(StyleNet, self).__init__()
         self.covnet = nn.Sequential(*list(vgg16(pretrained = True).features)[:29])  #vgg block5-1 conv 까지
         
-        self.fc = nn.Linear(512 * 512, 2048)
+        self.fc = nn.Linear(512 * 512, 1024)
         
     def gram_matrix(self, x):
         b, c, h, w = x.size()  # a=batch size(=1)
@@ -160,7 +159,7 @@ class ContentNet(nn.Module):
         super(ContentNet, self).__init__()
         self.convnet = nn.Sequential(*list(vgg16(pretrained = True).features)) 
         self.avg_pool = nn.AvgPool2d(7)
-        self.fc1 = nn.Linear(512, 2048)
+        self.fc1 = nn.Linear(512, 1024)
         
     def forward(self, x):
         output = self.convnet(x)
@@ -200,8 +199,8 @@ class TripletLoss(nn.Module):
         self.margin = margin
         
     def forward(self, anchor, positive, negative, size_average = True):
-        distance_positive = (anchor - positive).pow(2).sum()  # .pow(.5)
-        distance_negative = (anchor - negative).pow(2).sum()  # .pow(.5)
+        distance_positive = (anchor - positive).pow(2).sum().sqrt()  # .pow(.5)
+        distance_negative = (anchor - negative).pow(2).sum().sqrt()  # .pow(.5)
         losses = F.relu(distance_positive - distance_negative + self.margin)
         return losses.mean() if size_average else losses.sum()
 
@@ -219,6 +218,7 @@ n_epochs = 20
 
 
 from tqdm import tqdm
+import math
 
 def train_epoch(train_loader, model, loss_fn, optimizer, cuda):
     model.train()
@@ -247,7 +247,12 @@ def train_epoch(train_loader, model, loss_fn, optimizer, cuda):
             loss_inputs += target
 
         loss_outputs = loss_fn(*loss_inputs)
+        print(loss_outputs)
+        print(model.parameters.data)
+
         loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs
+        if math.isnan(loss.item()):
+            print('nan')
         losses.append(loss.item())
         total_loss += loss.item()
         loss.backward()
@@ -306,6 +311,7 @@ def test_epoch(val_loader, model, loss_fn, cuda):
                 loss_inputs += target
 
             loss_outputs = loss_fn(*loss_inputs)
+            print(loss_outputs)
             loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs
             val_loss += loss.item()
 
